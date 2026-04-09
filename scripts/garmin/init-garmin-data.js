@@ -162,7 +162,7 @@ async function runSync() {
 
   try {
     // Use JavaScript sync module
-    const GarminSync = require('./sync-garmin');
+    const GarminSync = require('./sync');
 
     const sync = new GarminSync({
       onlyRunning: true,
@@ -186,7 +186,7 @@ async function runSync() {
 /** 同步完成后重建 laps 衍生的 hr_zone、vdot_trend 缓存 */
 function runPreprocessStatsCache() {
   return new Promise((resolve, reject) => {
-    const scriptPath = path.join(process.cwd(), 'scripts', 'preprocess-stats-cache.js');
+    const scriptPath = path.join(process.cwd(), 'scripts', 'garmin', 'preprocess-stats-cache.js');
     const child = spawn(process.execPath, [scriptPath, '--mode', 'full', '--clear'], {
       stdio: 'inherit',
       cwd: process.cwd(),

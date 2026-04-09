@@ -7,7 +7,11 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "init:data": "DEBUG_GARMIN_LIST=1 node scripts/init-garmin-data.js"
+    "init:data": "DEBUG_GARMIN_LIST=1 node scripts/garmin/init-garmin-data.js",
+    "sync:garmin": "node scripts/garmin/sync.js",
+    "sync:strava": "node scripts/strava/sync.js",
+    "auth:strava": "python scripts/strava/oauth_helper.py",
+    "test": "jest"
   },
   "dependencies": {
     "@zip.js/zip.js": "^2.8.19",
@@ -30,6 +34,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
+    "jest": "^30.3.0",
     "playwright": "^1.58.2",
     "tailwindcss": "^4",
     "typescript": "^5"
