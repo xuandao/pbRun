@@ -206,6 +206,7 @@ class StravaFetcher:
     def generate_gpx(self, activity, streams, output_dir):
         """Generate GPX file from Strava streams"""
         if not streams.get('time') or not streams.get('latlng'):
+            print("WARN: No GPS data available (treadmill run?), skipping GPX generation", file=sys.stderr)
             return None
 
         try:
