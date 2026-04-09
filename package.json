@@ -12,7 +12,7 @@
     "sync:strava": "node scripts/strava/sync.js",
     "auth:strava": "python scripts/strava/oauth_helper.py",
     "test": "jest",
-    "test:unit": "jest --testPathPattern=tests/unit",
+    "test:unit": "jest tests/unit",
     "test:coverage": "jest --coverage",
     "test:watch": "jest --watch"
   },
