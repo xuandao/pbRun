@@ -205,17 +205,24 @@ class StravaSync {
       return [];
     }
 
-    return laps.map(lap => ({
-      activity_id: activityId,
-      lap_index: lap.lap_index,
-      duration: lap.duration,
-      distance: lap.distance,
-      average_pace: lap.average_pace,
-      average_heart_rate: lap.average_heart_rate,
-      max_heart_rate: lap.max_heart_rate,
-      total_ascent: lap.total_ascent,
-      average_cadence: lap.average_cadence,
-    }));
+    let cumulativeTime = 0;
+
+    return laps.map(lap => {
+      cumulativeTime += lap.duration || 0;
+
+      return {
+        activity_id: activityId,
+        lap_index: lap.lap_index,
+        duration: lap.duration,
+        cumulative_time: cumulativeTime,
+        distance: lap.distance,
+        average_pace: lap.average_pace,
+        average_heart_rate: lap.average_heart_rate,
+        max_heart_rate: lap.max_heart_rate,
+        total_ascent: lap.total_ascent,
+        average_cadence: lap.average_cadence,
+      };
+    });
   }
 
   /**

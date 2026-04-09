@@ -278,12 +278,14 @@ class StravaFetcher:
         avg_speed = parse_quantity(activity.average_speed)
         avg_pace_sec = pace_to_seconds(avg_speed)
 
-        avg_hr = activity.average_heartrate
-        max_hr = activity.max_heartrate
-        calories = activity.calories
-        elevation_gain = parse_quantity(activity.total_elevation_gain)
-        avg_cadence = parse_quantity(activity.average_cadence)
-        max_cadence = parse_quantity(activity.max_cadence)
+        avg_hr = getattr(activity, 'average_heartrate', None)
+        max_hr = getattr(activity, 'max_heartrate', None)
+        calories = getattr(activity, 'calories', None)
+        elevation_gain = parse_quantity(getattr(activity, 'total_elevation_gain', None))
+        avg_cadence = parse_quantity(getattr(activity, 'average_cadence', None))
+        max_cadence = parse_quantity(getattr(activity, 'max_cadence', None))
+        avg_power = getattr(activity, 'average_watts', None)
+        max_power = getattr(activity, 'max_watts', None)
 
         # Date and time
         start_time = activity.start_date
@@ -333,7 +335,7 @@ class StravaFetcher:
             # Pace and speed
             'average_pace': avg_pace_sec,
             'average_speed': round(avg_speed * 3.6, 2) if avg_speed else None,  # km/h
-            'max_speed': round(parse_quantity(activity.max_speed), 2) if activity.max_speed else None,
+            'max_speed': round(parse_quantity(getattr(activity, 'max_speed', None)), 2) if getattr(activity, 'max_speed', None) else None,
 
             # Heart rate
             'average_heart_rate': round(avg_hr) if avg_hr else None,
@@ -347,8 +349,8 @@ class StravaFetcher:
             'total_ascent': round(elevation_gain, 1) if elevation_gain else None,
 
             # Power
-            'average_power': round(parse_quantity(activity.average_watts)) if activity.average_watts else None,
-            'max_power': round(parse_quantity(activity.max_watts)) if activity.max_watts else None,
+            'average_power': round(parse_quantity(avg_power)) if avg_power else None,
+            'max_power': round(parse_quantity(max_power)) if max_power else None,
 
             # Calories
             'calories': int(calories) if calories else None,
