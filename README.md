@@ -106,8 +106,8 @@
 
 ### 技术栈
 
-- **数据同步**: Node.js + Garmin Connect API
-- **数据解析**: FIT SDK (心率、配速、GPS 等 28+ 字段)
+- **数据同步**: Node.js + Garmin Connect API + Strava API
+- **数据解析**: FIT SDK (心率、配速、GPS 等 28+ 字段) / Strava Streams
 - **数据存储**: SQLite (离线数据库，随代码部署)
 - **Web 框架**: Next.js 16 (App Router + API Routes)
 - **数据可视化**: ECharts (跑力趋势、心率区间、配速分析)
@@ -119,7 +119,7 @@
 ### 前置要求
 
 - Node.js 18+
-- Garmin 国际区账号 (国区不支持)
+- Garmin 国际区账号 (国区不支持) **或** Strava 账号
 - GitHub 账号
 - Vercel 账号 (可选，用于部署)
 
@@ -139,7 +139,9 @@ npm install
 > SDKROOT=$(xcrun --sdk macosx --show-sdk-path) npm install
 > ```
 
-### 2. 配置 Garmin 认证
+### 2. 配置数据源 (Garmin 或 Strava)
+
+#### 方案 A: Garmin 数据源
 
 **先创建 `.env` 并填写 Garmin 账号密码**（用于获取 Token，非交互式；也可不填，运行脚本时按提示输入）：
 
@@ -152,14 +154,29 @@ GARMIN_PASSWORD=your_garmin_password
 然后运行脚本获取 Token：
 
 ```bash
-python3 scripts/get_garmin_token.py
+python3 scripts/garmin/get_garmin_token.py
 ```
 
 脚本会从 .env 读取 `GARMIN_EMAIL` / `GARMIN_PASSWORD`，未配置时会提示输入。将输出的 **GARMIN_SECRET_STRING** 填入下面 .env 中。
 
+#### 方案 B: Strava 数据源
+
+**先配置 Strava OAuth 应用**:
+
+1. 访问 [Strava API Settings](https://www.strava.com/settings/api)
+2. 创建应用，获取 `Client ID` 和 `Client Secret`
+
+**然后运行授权脚本**:
+
+```bash
+npm run auth:strava
+```
+
+按提示完成 OAuth 授权，将输出的 token 填入下面 .env 中。
+
 ### 3. 配置环境变量
 
-在 `.env` 中补充/保留以下变量：
+在 `.env` 中补充/保留以下变量（根据你选择的数据源）：
 
 ```bash
 # Garmin 账号（供 get_garmin_token.py 使用，重新获取 Token 时无需再输入）
@@ -169,6 +186,11 @@ GARMIN_PASSWORD=your_garmin_password
 # Garmin 认证 Token（由上一步脚本输出，用于同步数据）
 GARMIN_SECRET_STRING="your_token_here"
 
+# Strava 认证（选择 Strava 数据源时配置）
+STRAVA_CLIENT_ID=your_strava_client_id
+STRAVA_CLIENT_SECRET=your_strava_client_secret
+STRAVA_REFRESH_TOKEN=your_strava_refresh_token
+
 # 个人心率参数 (用于计算心率区间和 VDOT)
 MAX_HR=190        # 最大心率
 RESTING_HR=55     # 静息心率
@@ -176,12 +198,24 @@ RESTING_HR=55     # 静息心率
 
 ### 4. 初始化数据
 
+#### Garmin 数据源
+
 ```bash
 # 一键同步所有历史数据
 npm run init:data
 
 # 或者手动测试同步最近 5 条记录
-node scripts/sync-garmin.js --limit 5
+node scripts/garmin/sync.js --limit 5
+```
+
+#### Strava 数据源
+
+```bash
+# 同步最近一次跑步活动
+npm run sync:strava
+
+# 同步最近 5 次活动
+node scripts/strava/sync.js --limit 5
 ```
 
 ### 5. 启动开发服务器
@@ -201,12 +235,21 @@ npm run dev
 
 2. **配置 GitHub Secrets**
    - 进入仓库 Settings > Secrets > Actions
-   - 添加以下 Secrets:
-     - `GARMIN_EMAIL` — Garmin 登录邮箱（用于重新获取 Token 等）
-     - `GARMIN_PASSWORD` — Garmin 登录密码（用于重新获取 Token 等）
-     - `GARMIN_SECRET_STRING` — 运行 `python3 scripts/get_garmin_token.py` 得到的 Token，同步数据时使用
-     - `MAX_HR` — 最大心率（可选）
-     - `RESTING_HR` — 静息心率（可选）
+   - 添加以下 Secrets（根据你选择的数据源）:
+
+   **Garmin 数据源:**
+   - `GARMIN_EMAIL` — Garmin 登录邮箱（用于重新获取 Token 等）
+   - `GARMIN_PASSWORD` — Garmin 登录密码（用于重新获取 Token 等）
+   - `GARMIN_SECRET_STRING` — 运行 `python3 scripts/garmin/get_garmin_token.py` 得到的 Token，同步数据时使用
+
+   **Strava 数据源:**
+   - `STRAVA_CLIENT_ID` — Strava App Client ID
+   - `STRAVA_CLIENT_SECRET` — Strava App Client Secret
+   - `STRAVA_REFRESH_TOKEN` — 运行 `npm run auth:strava` 得到的 Refresh Token
+
+   **通用配置:**
+   - `MAX_HR` — 最大心率（可选）
+   - `RESTING_HR` — 静息心率（可选）
 
 3. **连接 Vercel**
    - 登录 [Vercel](https://vercel.com)
@@ -239,10 +282,19 @@ garmin_data/
 │   ├── stats/             # 统计页面
 │   └── lib/               # 工具库 (数据库、格式化)
 ├── scripts/               # 数据同步脚本
-│   ├── sync-garmin.js     # 主同步脚本
-│   ├── fit-parser.js      # FIT 文件解析
-│   ├── vdot-calculator.js # VDOT 跑力计算
-│   └── db-manager.js      # 数据库操作
+│   ├── common/            # 通用模块
+│   │   ├── db-manager.js  # 数据库操作
+│   │   ├── vdot-calculator.js # VDOT 计算
+│   │   └── utils.js       # 工具函数
+│   ├── garmin/            # Garmin 数据源
+│   │   ├── sync.js        # Garmin 同步脚本
+│   │   ├── client.js      # Garmin API 客户端
+│   │   ├── fit-parser.js  # FIT 文件解析
+│   │   └── get_garmin_token.py # Token 获取
+│   └── strava/            # Strava 数据源
+│       ├── sync.js        # Strava 同步脚本
+│       ├── fetcher.py     # Strava 数据拉取
+│       └── oauth_helper.py # OAuth 授权助手
 ├── .github/workflows/     # GitHub Actions
 │   └── sync_garmin_data.yml
 ├── app/data/              # SQLite 数据库
@@ -291,11 +343,17 @@ cd pbRun
 # 安装依赖（macOS 若遇 better-sqlite3 编译错误，改用：SDKROOT=$(xcrun --sdk macosx --show-sdk-path) npm install）
 npm install
 
+# 安装 Python 依赖（用于 Strava 同步）
+pip3 install stravalib gpxpy requests
+
 # 启动开发服务器
 npm run dev
 
+# 运行测试
+npm test
+
 # 运行数据验证
-node scripts/validate-data.js
+node scripts/garmin/validate-data.js
 ```
 
 ## 开源协议
