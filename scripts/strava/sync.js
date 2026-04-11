@@ -451,7 +451,11 @@ async function main() {
       process.exit(result.synced > 0 ? 0 : 1);
     }
 
-    process.exit(result.success ? 0 : 1);
+    // For single activity: success if synced or already_exists (not a real error)
+    if (result.success || result.reason === 'already_exists') {
+      process.exit(0);
+    }
+    process.exit(1);
   } catch (error) {
     console.error('\n' + colors.red + 'Error: ' + error.message + colors.reset);
     process.exit(1);
