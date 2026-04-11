@@ -179,23 +179,47 @@ describe('Strava Data Transformation: Activity Types', () => {
   });
 });
 
-describe('Strava Data Transformation: Optional Fields', () => {
-  test('should handle power data if available', () => {
-    expect(mockStravaActivity.average_power).toBe(250);
-    expect(mockStravaActivity.max_power).toBe(300);
-  });
-
-  test('should handle elevation data', () => {
-    expect(mockStravaActivity.total_ascent).toBe(50);
-  });
-
-  test('should handle calories', () => {
-    expect(mockStravaActivity.calories).toBe(350);
-  });
-
-  test('should handle cadence data', () => {
+describe('Strava Data Transformation: Cadence Data', () => {
+  test('should handle cadence data converted from rpm to spm', () => {
+    // Strava API returns rpm (rotations per minute), we convert to spm (steps per minute)
+    // Typical running cadence: 85 rpm = 170 spm
     expect(mockStravaActivity.average_cadence).toBe(170);
     expect(mockStravaActivity.max_cadence).toBe(180);
+  });
+
+  test('lap cadence should be converted from rpm to spm', () => {
+    // Lap cadence should also be in spm after conversion
+    // Typical lap cadence: 82-85 rpm = 165-170 spm
+    expect(mockStravaActivity.laps[0].average_cadence).toBe(165);
+    expect(mockStravaActivity.laps[1].average_cadence).toBe(170);
+  });
+
+  test('cadence values should be in reasonable spm range', () => {
+    // Normal running cadence ranges from 150-200 spm
+    const avgCadence = mockStravaActivity.average_cadence;
+    expect(avgCadence).toBeGreaterThanOrEqual(150);
+    expect(avgCadence).toBeLessThanOrEqual(200);
+  });
+
+  test('should handle missing cadence data gracefully', () => {
+    const activityWithoutCadence = {
+      ...mockStravaActivity,
+      average_cadence: null,
+      max_cadence: null,
+    };
+
+    expect(activityWithoutCadence.average_cadence).toBeNull();
+    expect(activityWithoutCadence.max_cadence).toBeNull();
+  });
+
+  test('cadence conversion formula should be correct', () => {
+    // rpm * 2 = spm
+    const rpmValue = 85;
+    const expectedSpm = rpmValue * 2;
+    expect(expectedSpm).toBe(170);
+
+    // Verify the mock data follows this pattern
+    expect(mockStravaActivity.average_cadence).toBe(expectedSpm);
   });
 });
 

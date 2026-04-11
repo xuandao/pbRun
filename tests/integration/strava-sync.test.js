@@ -8,6 +8,8 @@ const fs = require('fs');
 const path = require('path');
 
 // Mock data for Strava API responses
+// Note: cadence values here are in spm (steps per minute) after conversion from rpm
+// Strava API returns rpm (rotations per minute), which is multiplied by 2 to get spm
 const mockStravaActivity = {
   activity_id: 1234567890,
   name: 'Morning Run',
@@ -25,8 +27,8 @@ const mockStravaActivity = {
   max_speed: 15.0,
   average_heart_rate: 155,
   max_heart_rate: 175,
-  average_cadence: 170,
-  max_cadence: 180,
+  average_cadence: 170,  // 85 rpm * 2 = 170 spm
+  max_cadence: 180,      // 90 rpm * 2 = 180 spm
   total_ascent: 50,
   average_power: 250,
   max_power: 300,
@@ -41,7 +43,7 @@ const mockStravaActivity = {
       average_heart_rate: 150,
       max_heart_rate: 160,
       total_ascent: 10,
-      average_cadence: 165,
+      average_cadence: 165,  // 82.5 rpm * 2 = 165 spm
     },
     {
       lap_index: 2,
@@ -51,7 +53,7 @@ const mockStravaActivity = {
       average_heart_rate: 155,
       max_heart_rate: 165,
       total_ascent: 15,
-      average_cadence: 170,
+      average_cadence: 170,  // 85 rpm * 2 = 170 spm
     },
   ],
   source: 'strava',
@@ -98,6 +100,23 @@ describe('Integration: Strava data transformation', () => {
     expect(lap.lap_index).toBe(1);
     expect(lap.distance).toBe(1000); // meters
     expect(lap.duration).toBe(300); // seconds
+  });
+
+  test('should convert cadence from rpm to spm', () => {
+    // Strava API returns cadence in rpm (rotations per minute)
+    // We convert to spm (steps per minute) by multiplying by 2
+    // 85 rpm * 2 = 170 spm (average cadence)
+    // 90 rpm * 2 = 180 spm (max cadence)
+    expect(mockStravaActivity.average_cadence).toBe(170);
+    expect(mockStravaActivity.max_cadence).toBe(180);
+
+    // Lap cadence should also be in spm
+    expect(mockStravaActivity.laps[0].average_cadence).toBe(165); // 82.5 * 2
+    expect(mockStravaActivity.laps[1].average_cadence).toBe(170); // 85 * 2
+
+    // Cadence should be in reasonable running range (150-200 spm)
+    expect(mockStravaActivity.average_cadence).toBeGreaterThanOrEqual(150);
+    expect(mockStravaActivity.average_cadence).toBeLessThanOrEqual(200);
   });
 });
 

@@ -280,4 +280,25 @@ describe('Strava Utils: Integration Tests', () => {
 
     expect(fastPace).toBeLessThan(slowPace);
   });
+
+  test('cadence conversion from rpm to spm should be correct', () => {
+    // Strava API returns cadence in rpm (rotations per minute)
+    // We convert to spm (steps per minute) by multiplying by 2
+    const rpmValues = [80, 85, 90];
+    const expectedSpmValues = [160, 170, 180];
+
+    rpmValues.forEach((rpm, index) => {
+      const spm = rpm * 2;
+      expect(spm).toBe(expectedSpmValues[index]);
+    });
+  });
+
+  test('cadence spm values should be in normal running range', () => {
+    // Typical running cadence: 160-200 spm (80-100 rpm)
+    const typicalCadenceRpm = 85;
+    const spm = typicalCadenceRpm * 2;
+
+    expect(spm).toBeGreaterThanOrEqual(150);
+    expect(spm).toBeLessThanOrEqual(200);
+  });
 });

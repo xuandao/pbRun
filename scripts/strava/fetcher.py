@@ -370,6 +370,11 @@ class StravaFetcher:
         elevation_gain = parse_quantity(getattr(activity, 'total_elevation_gain', None))
         avg_cadence = parse_quantity(getattr(activity, 'average_cadence', None))
         max_cadence = parse_quantity(getattr(activity, 'max_cadence', None))
+        # Strava cadence is in rpm (rotations per minute), multiply by 2 for steps per minute (spm)
+        if avg_cadence:
+            avg_cadence = avg_cadence * 2
+        if max_cadence:
+            max_cadence = max_cadence * 2
         avg_power = getattr(activity, 'average_watts', None)
         max_power = getattr(activity, 'max_watts', None)
 
@@ -397,7 +402,7 @@ class StravaFetcher:
                 'average_heart_rate': int(lap.average_heartrate) if lap.average_heartrate else None,
                 'max_heart_rate': int(lap.max_heartrate) if lap.max_heartrate else None,
                 'total_ascent': round(lap_elevation, 1) if lap_elevation else None,
-                'average_cadence': int(lap.average_cadence) if lap.average_cadence else None,
+                'average_cadence': int(lap.average_cadence * 2) if lap.average_cadence else None,
             })
 
         result = {
