@@ -17,7 +17,7 @@ require('dotenv').config();
 
 const Database = require('better-sqlite3');
 const path = require('path');
-const VDOTCalculator = require('../common/vdot-calculator');
+const VDOTCalculator = require('./common/vdot-calculator');
 
 // ANSI colors
 const colors = {

@@ -403,6 +403,12 @@ class StravaFetcher:
         avg_power = getattr(activity, 'average_watts', None)
         max_power = getattr(activity, 'max_watts', None)
 
+        # Calculate stride length from speed and cadence
+        # stride_length (m) = speed (m/s) / (cadence (spm) / 60)
+        avg_stride_length = None
+        if avg_speed and avg_cadence and avg_cadence > 0:
+            avg_stride_length = avg_speed / (avg_cadence / 60)
+
         # Date and time
         start_time = activity.start_date
         start_time_local = activity.start_date_local
@@ -418,6 +424,14 @@ class StravaFetcher:
             lap_duration = lap.elapsed_time.total_seconds() if lap.elapsed_time else 0
             lap_speed = parse_quantity(lap.average_speed)
             lap_elevation = parse_quantity(lap.total_elevation_gain)
+            lap_cadence = parse_quantity(lap.average_cadence)
+            if lap_cadence:
+                lap_cadence = lap_cadence * 2  # rpm to spm
+
+            # Calculate lap stride length
+            lap_stride_length = None
+            if lap_speed and lap_cadence and lap_cadence > 0:
+                lap_stride_length = lap_speed / (lap_cadence / 60)
 
             splits.append({
                 'lap_index': lap.lap_index,
@@ -427,7 +441,8 @@ class StravaFetcher:
                 'average_heart_rate': int(lap.average_heartrate) if lap.average_heartrate else None,
                 'max_heart_rate': int(lap.max_heartrate) if lap.max_heartrate else None,
                 'total_ascent': round(lap_elevation, 1) if lap_elevation else None,
-                'average_cadence': int(lap.average_cadence * 2) if lap.average_cadence else None,
+                'average_cadence': int(lap_cadence) if lap_cadence else None,
+                'average_stride_length': round(lap_stride_length, 4) if lap_stride_length else None,
             })
 
         result = {
@@ -460,6 +475,9 @@ class StravaFetcher:
             # Cadence
             'average_cadence': round(avg_cadence) if avg_cadence else None,
             'max_cadence': int(max_cadence) if max_cadence else None,
+
+            # Stride length
+            'average_stride_length': round(avg_stride_length, 4) if avg_stride_length else None,
 
             # Elevation
             'total_ascent': round(elevation_gain, 1) if elevation_gain else None,
@@ -534,6 +552,11 @@ class StravaFetcher:
         if save_gpx and output_dir:
             os.makedirs(output_dir, exist_ok=True)
             gpx_path = self.generate_gpx(activity, streams, output_dir)
+
+        # Transform data
+        data = self.transform_activity_data(activity, streams, laps, gpx_path)
+
+        return data, new_token
 
     def fetch_since(self, after_date, before_date=None, output_dir=None, save_gpx=True, limit=100):
         """Fetch all running activities since a given date"""

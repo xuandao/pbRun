@@ -199,6 +199,9 @@ class StravaSync {
       average_cadence: data.average_cadence,
       max_cadence: data.max_cadence,
 
+      // Stride length
+      average_stride_length: data.average_stride_length,
+
       // Elevation
       total_ascent: data.total_ascent,
 
@@ -254,6 +257,7 @@ class StravaSync {
         max_heart_rate: lap.max_heart_rate,
         total_ascent: lap.total_ascent,
         average_cadence: lap.average_cadence,
+        average_stride_length: lap.average_stride_length,
       };
     });
   }
