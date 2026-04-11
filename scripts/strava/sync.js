@@ -38,7 +38,8 @@ class StravaSync {
 
     this.dbPath = options.dbPath || 'app/data/activities.db';
     this.gpxDir = options.gpxDir || 'public/gpx/strava';
-    this.limit = options.limit || 1; // Default to 1 for single activity sync
+    this.limit = options.limit || 1;
+    this.activityId = options.activityId || null; // Specific activity ID to sync
 
     // Validate credentials
     if (!this.clientId || !this.clientSecret || !this.refreshToken) {
@@ -74,7 +75,13 @@ class StravaSync {
         '--json',
       ];
 
-      log('Fetching activity from Strava...', 'cyan');
+      // Add activity ID if specified
+      if (this.activityId) {
+        args.push('--activity-id', this.activityId);
+      }
+
+      const fetchType = this.activityId ? `activity ${this.activityId}` : 'latest activity';
+      log(`Fetching ${fetchType} from Strava...`, 'cyan');
 
       const child = spawn('python3', args, {
         cwd: process.cwd(),
@@ -102,6 +109,8 @@ class StravaSync {
             ));
           } else if (stderr.includes('No running activities')) {
             reject(new Error('No running activities found in Strava.'));
+          } else if (stderr.includes('not found')) {
+            reject(new Error(`Activity ${this.activityId} not found in Strava.`));
           } else {
             reject(new Error(`Python fetcher failed: ${stderr || stdout}`));
           }
@@ -334,6 +343,7 @@ function parseArgs() {
     dbPath: 'app/data/activities.db',
     gpxDir: 'public/gpx/strava',
     limit: 1,
+    activityId: null,
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -345,6 +355,8 @@ function parseArgs() {
       options.gpxDir = args[++i];
     } else if (arg === '--limit' && args[i + 1]) {
       options.limit = parseInt(args[++i]);
+    } else if (arg === '--activity-id' && args[i + 1]) {
+      options.activityId = args[++i];
     }
   }
 

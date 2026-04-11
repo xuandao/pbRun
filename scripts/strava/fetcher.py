@@ -181,6 +181,21 @@ class StravaFetcher:
         return self.client.get_activity(latest.id)
 
     @retry_with_timeout(max_retries=MAX_RETRIES, delay=RETRY_DELAY)
+    def get_activity_by_id(self, activity_id):
+        """Get a specific activity by ID"""
+        try:
+            activity = self.client.get_activity(activity_id)
+            # Verify it's a running activity
+            if activity.type != 'Run':
+                print(f"WARN: Activity {activity_id} is not a run (type: {activity.type})", file=sys.stderr)
+            return activity
+        except Exception as e:
+            error_msg = str(e).lower()
+            if 'not found' in error_msg:
+                print(f"ERROR: Activity {activity_id} not found", file=sys.stderr)
+            raise
+
+    @retry_with_timeout(max_retries=MAX_RETRIES, delay=RETRY_DELAY)
     def get_activity_streams(self, activity_id):
         """Get activity streams for GPS and time series data"""
         try:
@@ -468,12 +483,40 @@ class StravaFetcher:
 
         return data, new_token
 
+    def fetch_by_id(self, activity_id, output_dir=None, save_gpx=True):
+        """Fetch a specific activity by ID and return transformed data"""
+
+        # Authenticate
+        new_token = self.authenticate()
+
+        # Get specific activity
+        activity = self.get_activity_by_id(activity_id)
+
+        if not activity:
+            return None, None
+
+        # Get streams and laps
+        streams = self.get_activity_streams(activity.id)
+        laps = self.get_activity_laps(activity.id)
+
+        # Generate GPX if requested
+        gpx_path = None
+        if save_gpx and output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+            gpx_path = self.generate_gpx(activity, streams, output_dir)
+
+        # Transform data
+        data = self.transform_activity_data(activity, streams, laps, gpx_path)
+
+        return data, new_token
+
 
 def main():
-    parser = argparse.ArgumentParser(description='Fetch latest Strava running activity')
+    parser = argparse.ArgumentParser(description='Fetch Strava running activity')
     parser.add_argument('--client-id', help='Strava Client ID')
     parser.add_argument('--client-secret', help='Strava Client Secret')
     parser.add_argument('--refresh-token', help='Strava Refresh Token')
+    parser.add_argument('--activity-id', help='Specific activity ID to fetch (optional, fetches latest if not provided)')
     parser.add_argument('--output-dir', help='Directory for GPX files')
     parser.add_argument('--no-gpx', action='store_true', help='Skip GPX generation')
     parser.add_argument('--json', action='store_true', help='Output JSON only')
@@ -491,10 +534,19 @@ def main():
 
     try:
         fetcher = StravaFetcher(client_id, client_secret, refresh_token)
-        data, new_token = fetcher.fetch_latest(
-            output_dir=args.output_dir,
-            save_gpx=not args.no_gpx
-        )
+
+        # Fetch by ID if specified, otherwise fetch latest
+        if args.activity_id:
+            data, new_token = fetcher.fetch_by_id(
+                activity_id=int(args.activity_id),
+                output_dir=args.output_dir,
+                save_gpx=not args.no_gpx
+            )
+        else:
+            data, new_token = fetcher.fetch_latest(
+                output_dir=args.output_dir,
+                save_gpx=not args.no_gpx
+            )
 
         if not data:
             print(json.dumps({"error": "No running activities found"}), file=sys.stderr)
