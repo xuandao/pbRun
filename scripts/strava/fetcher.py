@@ -268,6 +268,76 @@ class StravaFetcher:
             print(f"WARN: Failed to generate GPX: {e}", file=sys.stderr)
             return None
 
+    def transform_records_data(self, streams):
+        """Transform Strava streams to pbRun activity_records schema
+
+        Returns list of records with heart_rate, cadence, step_length, pace
+        Strava cadence is in rpm (rotations per minute), multiply by 2 for steps per minute.
+        """
+        if not streams:
+            return []
+
+        time_stream = streams.get('time')
+        hr_stream = streams.get('heartrate')
+        cadence_stream = streams.get('cadence')
+        distance_stream = streams.get('distance')
+
+        # Need at least time stream
+        if not time_stream or not hasattr(time_stream, 'data'):
+            return []
+
+        time_data = time_stream.data
+        hr_data = hr_stream.data if hr_stream and hasattr(hr_stream, 'data') else []
+        cadence_data = cadence_stream.data if cadence_stream and hasattr(cadence_stream, 'data') else []
+        distance_data = distance_stream.data if distance_stream and hasattr(distance_stream, 'data') else []
+
+        records = []
+        for i in range(len(time_data)):
+            elapsed_sec = time_data[i]
+
+            # Heart rate
+            heart_rate = None
+            if i < len(hr_data) and hr_data[i] is not None:
+                hr_val = hr_data[i]
+                if hr_val > 0:  # Filter out 0 values
+                    heart_rate = int(hr_val)
+
+            # Cadence: convert rpm to spm (steps per minute)
+            cadence = None
+            if i < len(cadence_data) and cadence_data[i] is not None:
+                cad_val = cadence_data[i]
+                if cad_val > 0:  # Filter out 0 values
+                    cadence = int(cad_val * 2)  # rpm to spm
+
+            # Calculate pace from distance changes
+            pace = None
+            if i > 0 and distance_data and len(distance_data) > i:
+                prev_dist = distance_data[i - 1]
+                curr_dist = distance_data[i]
+                time_diff = time_data[i] - time_data[i - 1]
+
+                if time_diff > 0 and curr_dist > prev_dist:
+                    # distance is in meters, convert to km and calculate sec/km
+                    dist_diff_m = curr_dist - prev_dist
+                    dist_diff_km = dist_diff_m / 1000
+                    pace = time_diff / dist_diff_km  # seconds per km
+                    # Sanity check: pace should be between 3:00 and 15:00 min/km
+                    if pace < 180 or pace > 900:
+                        pace = None
+
+            # Only include records with at least one metric
+            if heart_rate is not None or cadence is not None or pace is not None:
+                records.append({
+                    'record_index': i,
+                    'elapsed_sec': round(elapsed_sec, 1),
+                    'heart_rate': heart_rate,
+                    'cadence': cadence,
+                    'step_length': None,  # Strava doesn't provide step_length in streams
+                    'pace': round(pace, 1) if pace else None,
+                })
+
+        return records
+
     def transform_activity_data(self, activity, streams, laps, gpx_path=None):
         """Transform Strava activity to pbRun SQLite schema"""
 
@@ -364,6 +434,9 @@ class StravaFetcher:
 
             # Source
             'source': 'strava',
+
+            # Records (time series data for trend charts)
+            'records': self.transform_records_data(streams),
         }
 
         return result

@@ -226,6 +226,25 @@ class StravaSync {
   }
 
   /**
+   * Transform records data for database
+   */
+  transformRecordsData(activityId, records) {
+    if (!records || !Array.isArray(records)) {
+      return [];
+    }
+
+    return records.map(rec => ({
+      activity_id: activityId,
+      record_index: rec.record_index,
+      elapsed_sec: rec.elapsed_sec,
+      heart_rate: rec.heart_rate,
+      cadence: rec.cadence,
+      step_length: rec.step_length,
+      pace: rec.pace,
+    }));
+  }
+
+  /**
    * Sync activity to database
    */
   async syncActivity(data) {
@@ -246,6 +265,12 @@ class StravaSync {
     const lapsData = this.transformLapsData(activityId, data.laps);
     if (lapsData.length > 0) {
       this.db.insertLaps(activityId, lapsData);
+    }
+
+    // Save records
+    const recordsData = this.transformRecordsData(activityId, data.records);
+    if (recordsData.length > 0) {
+      this.db.insertActivityRecords(activityId, recordsData);
     }
 
     return { success: true, activityId };
