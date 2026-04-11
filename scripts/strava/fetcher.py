@@ -181,6 +181,31 @@ class StravaFetcher:
         return self.client.get_activity(latest.id)
 
     @retry_with_timeout(max_retries=MAX_RETRIES, delay=RETRY_DELAY)
+    def get_activities_since(self, after, before=None, limit=100):
+        """Get all running activities since a given date (datetime object)"""
+        try:
+            # Stravalib expects datetime objects for after/before parameters
+            activities = list(self.client.get_activities(limit=limit, after=after, before=before))
+        except Exception as e:
+            print(f"ERROR: Failed to get activities list: {e}", file=sys.stderr)
+            raise
+
+        if not activities:
+            return []
+
+        # Filter for running activities and get full details
+        running_activities = []
+        for act in activities:
+            if act.type == 'Run':
+                try:
+                    full_activity = self.client.get_activity(act.id)
+                    running_activities.append(full_activity)
+                except Exception as e:
+                    print(f"WARN: Failed to get activity {act.id}: {e}", file=sys.stderr)
+
+        return running_activities
+
+    @retry_with_timeout(max_retries=MAX_RETRIES, delay=RETRY_DELAY)
     def get_activity_by_id(self, activity_id):
         """Get a specific activity by ID"""
         try:
@@ -510,10 +535,39 @@ class StravaFetcher:
             os.makedirs(output_dir, exist_ok=True)
             gpx_path = self.generate_gpx(activity, streams, output_dir)
 
-        # Transform data
-        data = self.transform_activity_data(activity, streams, laps, gpx_path)
+    def fetch_since(self, after_date, before_date=None, output_dir=None, save_gpx=True, limit=100):
+        """Fetch all running activities since a given date"""
 
-        return data, new_token
+        # Authenticate
+        new_token = self.authenticate()
+
+        # Get activities since date
+        activities = self.get_activities_since(after=after_date, before=before_date, limit=limit)
+
+        if not activities:
+            return [], new_token
+
+        results = []
+        for activity in activities:
+            try:
+                # Get streams and laps
+                streams = self.get_activity_streams(activity.id)
+                laps = self.get_activity_laps(activity.id)
+
+                # Generate GPX if requested
+                gpx_path = None
+                if save_gpx and output_dir:
+                    os.makedirs(output_dir, exist_ok=True)
+                    gpx_path = self.generate_gpx(activity, streams, output_dir)
+
+                # Transform data
+                data = self.transform_activity_data(activity, streams, laps, gpx_path)
+                results.append(data)
+
+            except Exception as e:
+                print(f"WARN: Failed to process activity {activity.id}: {e}", file=sys.stderr)
+
+        return results, new_token
 
 
 def main():
@@ -522,6 +576,8 @@ def main():
     parser.add_argument('--client-secret', help='Strava Client Secret')
     parser.add_argument('--refresh-token', help='Strava Refresh Token')
     parser.add_argument('--activity-id', help='Specific activity ID to fetch (optional, fetches latest if not provided)')
+    parser.add_argument('--since', help='Fetch activities since this date (ISO format: YYYY-MM-DD)')
+    parser.add_argument('--limit', type=int, default=100, help='Maximum number of activities to fetch (default: 100)')
     parser.add_argument('--output-dir', help='Directory for GPX files')
     parser.add_argument('--no-gpx', action='store_true', help='Skip GPX generation')
     parser.add_argument('--json', action='store_true', help='Output JSON only')
@@ -540,28 +596,70 @@ def main():
     try:
         fetcher = StravaFetcher(client_id, client_secret, refresh_token)
 
-        # Fetch by ID if specified, otherwise fetch latest
+        # Fetch by ID if specified
         if args.activity_id:
             data, new_token = fetcher.fetch_by_id(
                 activity_id=int(args.activity_id),
                 output_dir=args.output_dir,
                 save_gpx=not args.no_gpx
             )
+
+            if not data:
+                print(json.dumps({"error": "No running activities found"}), file=sys.stderr)
+                sys.exit(1)
+
+            # Add token refresh info if needed
+            if new_token:
+                data['_new_refresh_token'] = new_token
+
+            print(json.dumps(data, indent=2, ensure_ascii=False))
+
+        # Fetch since date if specified
+        elif args.since:
+            from datetime import timezone
+            since_date = datetime.fromisoformat(args.since)
+            # Set to start of day in UTC
+            since_date = since_date.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=timezone.utc)
+
+            print(f"Fetching activities since {args.since}...", file=sys.stderr)
+            results, new_token = fetcher.fetch_since(
+                after_date=since_date,
+                output_dir=args.output_dir,
+                save_gpx=not args.no_gpx,
+                limit=args.limit
+            )
+
+            if not results:
+                print(json.dumps({"error": "No running activities found"}), file=sys.stderr)
+                sys.exit(1)
+
+            output = {
+                "activities": results,
+                "count": len(results)
+            }
+
+            # Add token refresh info if needed
+            if new_token:
+                output['_new_refresh_token'] = new_token
+
+            print(json.dumps(output, indent=2, ensure_ascii=False))
+
+        # Otherwise fetch latest
         else:
             data, new_token = fetcher.fetch_latest(
                 output_dir=args.output_dir,
                 save_gpx=not args.no_gpx
             )
 
-        if not data:
-            print(json.dumps({"error": "No running activities found"}), file=sys.stderr)
-            sys.exit(1)
+            if not data:
+                print(json.dumps({"error": "No running activities found"}), file=sys.stderr)
+                sys.exit(1)
 
-        # Add token refresh info if needed
-        if new_token:
-            data['_new_refresh_token'] = new_token
+            # Add token refresh info if needed
+            if new_token:
+                data['_new_refresh_token'] = new_token
 
-        print(json.dumps(data, indent=2, ensure_ascii=False))
+            print(json.dumps(data, indent=2, ensure_ascii=False))
 
     except Exception as e:
         print(json.dumps({"error": str(e)}), file=sys.stderr)

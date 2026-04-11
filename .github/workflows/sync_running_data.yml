@@ -1,0 +1,107 @@
+name: Sync Running Data
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'app/data/activities.db'
+  workflow_dispatch:
+    inputs:
+      source:
+        description: '同步数据源'
+        required: true
+        default: 'strava'
+        type: choice
+        options:
+          - strava
+          - garmin
+  repository_dispatch:
+    types: [sync-running-data]
+  schedule:
+    - cron: '0 */8 * * *'      # 每 8 小时一次 (UTC 00:00, 08:00, 16:00)
+
+env:
+  NODE_VERSION: '22'
+  # 默认同步源 (push 和 schedule 触发时使用)
+  DEFAULT_SYNC_SOURCE: 'strava'
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Restore database cache
+        uses: actions/cache@v4
+        with:
+          path: app/data/activities.db
+          key: ${{ steps.determine-source.outputs.source }}-db-${{ github.sha }}
+          restore-keys: |
+            ${{ steps.determine-source.outputs.source }}-db-
+
+      - name: Determine sync source
+        id: determine-source
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            # 手动触发时使用输入参数
+            echo "source=${{ github.event.inputs.source }}" >> $GITHUB_OUTPUT
+          else
+            # push/schedule 触发时使用默认源
+            echo "source=${{ env.DEFAULT_SYNC_SOURCE }}" >> $GITHUB_OUTPUT
+          fi
+          echo "Sync source: $(cat $GITHUB_OUTPUT | grep source | cut -d= -f2)"
+
+      - name: Sync Strava data
+        if: steps.determine-source.outputs.source == 'strava'
+        env:
+          STRAVA_CLIENT_ID: ${{ secrets.STRAVA_CLIENT_ID }}
+          STRAVA_CLIENT_SECRET: ${{ secrets.STRAVA_CLIENT_SECRET }}
+          STRAVA_REFRESH_TOKEN: ${{ secrets.STRAVA_REFRESH_TOKEN }}
+          MAX_HR: ${{ secrets.MAX_HR }}
+          RESTING_HR: ${{ secrets.RESTING_HR }}
+        run: node scripts/strava/sync.js
+
+      - name: Sync Garmin data
+        if: steps.determine-source.outputs.source == 'garmin'
+        env:
+          GARMIN_SECRET_STRING: ${{ secrets.GARMIN_SECRET_STRING }}
+          MAX_HR: ${{ secrets.MAX_HR }}
+          RESTING_HR: ${{ secrets.RESTING_HR }}
+        run: node scripts/garmin/sync.js
+
+      - name: Update stats cache
+        env:
+          MAX_HR: ${{ secrets.MAX_HR }}
+          RESTING_HR: ${{ secrets.RESTING_HR }}
+        run: node scripts/preprocess-stats-cache.js --mode full --clear
+
+      - name: Show sync results
+        if: always()
+        run: |
+          if [ -f app/data/activities.db ]; then
+            echo "Database size: $(du -h app/data/activities.db | cut -f1)"
+            echo "Activities count: $(sqlite3 app/data/activities.db 'SELECT COUNT(*) FROM activities;' 2>/dev/null || echo 'N/A')"
+          fi
+
+      - name: Commit and push
+        run: |
+          git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add app/data/activities.db
+          SOURCE="${{ steps.determine-source.outputs.source }}"
+          git diff --staged --quiet || git commit -m "chore: update ${SOURCE} data $(date +%Y-%m-%d)"
+          git push

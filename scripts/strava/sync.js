@@ -38,8 +38,9 @@ class StravaSync {
 
     this.dbPath = options.dbPath || 'app/data/activities.db';
     this.gpxDir = options.gpxDir || 'public/gpx/strava';
-    this.limit = options.limit || 1;
-    this.activityId = options.activityId || null; // Specific activity ID to sync
+    this.limit = options.limit || 100;
+    this.activityId = options.activityId || null;
+    this.since = options.since || null;  // Date string YYYY-MM-DD
 
     // Validate credentials
     if (!this.clientId || !this.clientSecret || !this.refreshToken) {
@@ -80,7 +81,17 @@ class StravaSync {
         args.push('--activity-id', this.activityId);
       }
 
-      const fetchType = this.activityId ? `activity ${this.activityId}` : 'latest activity';
+      // Add since date if specified
+      if (this.since) {
+        args.push('--since', this.since);
+        args.push('--limit', String(this.limit));
+      }
+
+      const fetchType = this.activityId
+        ? `activity ${this.activityId}`
+        : this.since
+          ? `activities since ${this.since}`
+          : 'latest activity';
       log(`Fetching ${fetchType} from Strava...`, 'cyan');
 
       const child = spawn('python3', args, {
@@ -123,7 +134,20 @@ class StravaSync {
             reject(new Error(data.error));
             return;
           }
-          resolve(data);
+
+          // Handle batch result (with activities array) or single result
+          if (data.activities && Array.isArray(data.activities)) {
+            resolve({
+              type: 'batch',
+              activities: data.activities,
+              count: data.count
+            });
+          } else {
+            resolve({
+              type: 'single',
+              activity: data
+            });
+          }
         } catch (e) {
           reject(new Error(`Failed to parse fetcher output: ${e.message}`));
         }
@@ -296,33 +320,76 @@ class StravaSync {
       await fs.mkdir(this.gpxDir, { recursive: true });
 
       // Fetch activity data from Python fetcher
-      const data = await this.fetchActivityData();
+      const result = await this.fetchActivityData();
 
-      log(`Found activity: ${data.name}`, 'green');
-      log(`  Distance: ${data.distance} km`, 'cyan');
-      log(`  Duration: ${formatDuration(data.duration)}`, 'cyan');
-      log(`  Date: ${data.start_time_local}`, 'cyan');
+      // Handle batch sync (multiple activities)
+      if (result.type === 'batch') {
+        log(`Found ${result.count} activities`, 'green');
 
-      // Sync to database
-      const result = await this.syncActivity(data);
+        let synced = 0;
+        let skipped = 0;
+        let failed = 0;
 
-      if (result.success) {
-        log(`\nSynced activity ${result.activityId} to database`, 'green');
+        for (const activityData of result.activities) {
+          try {
+            log(`\nProcessing: ${activityData.name}`, 'cyan');
+            log(`  Distance: ${activityData.distance} km`, 'cyan');
+            log(`  Date: ${activityData.start_time_local}`, 'cyan');
 
-        // Show GPX info
-        if (data.gpx_path) {
-          log(`GPX saved: ${data.gpx_path}`, 'cyan');
+            const syncResult = await this.syncActivity(activityData);
+
+            if (syncResult.success) {
+              synced++;
+              log(`  ✓ Synced: ${syncResult.activityId}`, 'green');
+            } else {
+              skipped++;
+              log(`  ⚠ Skipped: ${syncResult.reason}`, 'yellow');
+            }
+          } catch (error) {
+            failed++;
+            log(`  ✗ Failed: ${error.message}`, 'red');
+          }
         }
 
-        // Show VDOT info
-        if (data.vdot_value) {
-          log(`VDOT: ${data.vdot_value}`, 'cyan');
-        }
+        log(`\n${'='.repeat(60)}`, 'bright');
+        log(`Sync Summary:`, 'bright');
+        log(`  Synced: ${synced}`, 'green');
+        log(`  Skipped: ${skipped}`, 'yellow');
+        log(`  Failed: ${failed}`, failed > 0 ? 'red' : 'reset');
+        log(`${'='.repeat(60)}`, 'bright');
 
-        return { success: true, activityId: result.activityId };
+        return { success: true, synced, skipped, failed };
+
       } else {
-        log(`Skipped: ${result.reason}`, 'yellow');
-        return { success: false, reason: result.reason };
+        // Single activity sync
+        const data = result.activity;
+
+        log(`Found activity: ${data.name}`, 'green');
+        log(`  Distance: ${data.distance} km`, 'cyan');
+        log(`  Duration: ${formatDuration(data.duration)}`, 'cyan');
+        log(`  Date: ${data.start_time_local}`, 'cyan');
+
+        // Sync to database
+        const syncResult = await this.syncActivity(data);
+
+        if (syncResult.success) {
+          log(`\nSynced activity ${syncResult.activityId} to database`, 'green');
+
+          // Show GPX info
+          if (data.gpx_path) {
+            log(`GPX saved: ${data.gpx_path}`, 'cyan');
+          }
+
+          // Show VDOT info
+          if (data.vdot_value) {
+            log(`VDOT: ${data.vdot_value}`, 'cyan');
+          }
+
+          return { success: true, activityId: syncResult.activityId };
+        } else {
+          log(`Skipped: ${syncResult.reason}`, 'yellow');
+          return { success: false, reason: syncResult.reason };
+        }
       }
 
     } catch (error) {
@@ -342,8 +409,9 @@ function parseArgs() {
   const options = {
     dbPath: 'app/data/activities.db',
     gpxDir: 'public/gpx/strava',
-    limit: 1,
+    limit: 100,
     activityId: null,
+    since: null,  // Date string in YYYY-MM-DD format
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -357,6 +425,8 @@ function parseArgs() {
       options.limit = parseInt(args[++i]);
     } else if (arg === '--activity-id' && args[i + 1]) {
       options.activityId = args[++i];
+    } else if (arg === '--since' && args[i + 1]) {
+      options.since = args[++i];
     }
   }
 
@@ -371,6 +441,12 @@ async function main() {
     const options = parseArgs();
     const sync = new StravaSync(options);
     const result = await sync.sync();
+
+    // For batch sync, success if at least one activity synced
+    if (result.synced !== undefined) {
+      process.exit(result.synced > 0 ? 0 : 1);
+    }
+
     process.exit(result.success ? 0 : 1);
   } catch (error) {
     console.error('\n' + colors.red + 'Error: ' + error.message + colors.reset);
