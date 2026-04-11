@@ -72,8 +72,12 @@ def format_duration(duration):
     if not duration:
         return None
 
+    # Handle timedelta (has total_seconds)
     if isinstance(duration, timedelta):
         total_seconds = int(duration.total_seconds())
+    # Handle Duration/Quantity (has magnitude)
+    elif hasattr(duration, 'magnitude'):
+        total_seconds = int(duration.magnitude)
     else:
         total_seconds = int(duration)
 
@@ -383,8 +387,22 @@ class StravaFetcher:
 
         # Basic metrics
         distance_km = parse_quantity(activity.distance) / 1000 if activity.distance else 0
-        duration_sec = activity.moving_time.total_seconds() if activity.moving_time else 0
-        elapsed_sec = activity.elapsed_time.total_seconds() if activity.elapsed_time else 0
+        # Handle both timedelta (has total_seconds) and Duration/Quantity (has magnitude)
+        if activity.moving_time:
+            if hasattr(activity.moving_time, 'total_seconds'):
+                duration_sec = activity.moving_time.total_seconds()
+            else:
+                duration_sec = parse_quantity(activity.moving_time)
+        else:
+            duration_sec = 0
+
+        if activity.elapsed_time:
+            if hasattr(activity.elapsed_time, 'total_seconds'):
+                elapsed_sec = activity.elapsed_time.total_seconds()
+            else:
+                elapsed_sec = parse_quantity(activity.elapsed_time)
+        else:
+            elapsed_sec = 0
 
         avg_speed = parse_quantity(activity.average_speed)
         avg_pace_sec = pace_to_seconds(avg_speed)
@@ -421,7 +439,14 @@ class StravaFetcher:
         splits = []
         for lap in laps:
             lap_distance = parse_quantity(lap.distance)  # Keep in meters for laps
-            lap_duration = lap.elapsed_time.total_seconds() if lap.elapsed_time else 0
+            # Handle both timedelta and Duration/Quantity for lap time
+            if lap.elapsed_time:
+                if hasattr(lap.elapsed_time, 'total_seconds'):
+                    lap_duration = lap.elapsed_time.total_seconds()
+                else:
+                    lap_duration = parse_quantity(lap.elapsed_time)
+            else:
+                lap_duration = 0
             lap_speed = parse_quantity(lap.average_speed)
             lap_elevation = parse_quantity(lap.total_elevation_gain)
             lap_cadence = parse_quantity(lap.average_cadence)
